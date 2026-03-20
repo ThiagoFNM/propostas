@@ -1,4 +1,8 @@
+import { PropostaMovelRepository } from "../infra/repository/usePropostaMovel";
+
 export class FuncoesCalculoProposta {
+    static propostaMovelRepository = new PropostaMovelRepository();
+
     static extrairGB(nomePlano: string): number {
         const match = nomePlano.match(/(\d+)GB/i);
         return match ? Number(match[1]) : 0;
@@ -115,7 +119,7 @@ export class FuncoesCalculoProposta {
         });
     }
 
-    static encontrarMelhorCombinacao(linhas: any[], targetGap: number) {
+    static encontrarMelhorCombinacao(linhas: any[], targetGap: number): any[] | null {
         let melhorEscolha: any[] | null = null;
         let melhorDiferenca = Infinity;
 
@@ -154,5 +158,12 @@ export class FuncoesCalculoProposta {
         backtrack(0, 0, []);
         return melhorEscolha;
     }
+
+    static async existeProposta(empresaId: number) {
+        const result = await this.propostaMovelRepository.findExistingProposal(empresaId);
+        return result.length > 0;
+    }
+
+    
 
 }

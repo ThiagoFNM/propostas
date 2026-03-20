@@ -1,5 +1,5 @@
-import { db } from "../db.js";
-import { planosMoveis } from "../schema.js";
+import { db } from "../db/index";
+import { planosMoveis } from "../db/schema";
 import { ilike, type InferSelectModel } from "drizzle-orm";
 
 type PlanoMovel = InferSelectModel<typeof planosMoveis>;

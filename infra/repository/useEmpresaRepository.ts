@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, gte, ilike, isNotNull, isNull, lt } from "drizzle-orm";
 import { db } from "../db/index";
 import { empresas } from "../db/schema";
 import type { InferSelectModel } from "drizzle-orm";
@@ -6,7 +6,25 @@ import type { InferSelectModel } from "drizzle-orm";
 type Empresa = InferSelectModel<typeof empresas>;
 
 export class EmpresaRepository {
-    async findAll(): Promise<Empresa[]> {
+
+
+    async findAllWithTpProduto(tpProduto: string): Promise<Empresa[]> {
+        const mesAtual = new Date().getMonth() + 1;
+        const anoAtual = new Date().getFullYear();
+
+        const firstDayOfMonth = new Date(anoAtual, mesAtual - 1, 1);
+        const firstDayOfNextMonth = new Date(anoAtual, mesAtual, 1);
+
+        const filters = [
+            ilike(empresas.tpProduto, `%${tpProduto}%`),
+            gte(empresas.atualizadoEm, firstDayOfMonth),
+            lt(empresas.atualizadoEm, firstDayOfNextMonth),
+        ];
+
+        return await db.select().from(empresas).where(and(...filters));
+    }
+
+    async findAllWithFatMovel(): Promise<Empresa[]> {
         return await db.select().from(empresas).where(and(isNotNull(empresas.valFatLinhasMoveis), isNull(empresas.valSva)));
     }
 

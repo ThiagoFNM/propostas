@@ -1,5 +1,5 @@
-import { db } from "../db.js";
-import { propostaMovel } from "../schema.js";
+import { db } from "../db/index";
+import { propostaMovel } from "../db/schema";
 import { eq } from "drizzle-orm";
 
 export class PropostaMovelRepository {
@@ -8,6 +8,10 @@ export class PropostaMovelRepository {
     }
 
     async findByEmpresaId(empresaId: number) {
+        return await db.select().from(propostaMovel).where(eq(propostaMovel.empresa_id, empresaId));
+    }
+
+    async findExistingProposal(empresaId: number) {
         return await db.select().from(propostaMovel).where(eq(propostaMovel.empresa_id, empresaId));
     }
 }

@@ -1,3 +1,4 @@
+import { timestamp } from "drizzle-orm/pg-core";
 import { boolean, decimal, integer, pgSchema, varchar } from "drizzle-orm/pg-core";
 
 
@@ -11,6 +12,8 @@ export const empresas = SchemaCarteira.table("empresas", {
     valFatLinhasMoveis: decimal('val_fat_linhas_moveis', { precision: 10, scale: 2 }),
     valFatMovelBruto: decimal('val_fat_movel_bruto', { precision: 10, scale: 2 }),
     valSva: decimal('val_sva', { precision: 10, scale: 2 }),
+    tpProduto: varchar('tp_produto', { length: 50 }).notNull(),
+    atualizadoEm: timestamp('atualizado_em').notNull()
 });
 
 export const fatura = SchemaCarteira.table("fatura", {
@@ -29,6 +32,7 @@ export const linhasMoveis = SchemaCarteira.table("linhas_moveis", {
     valor: decimal('fat_medio_3_meses', { precision: 10, scale: 2 }).notNull(),
     m: integer('m_recomendacao').notNull(),
     fidelizacao: boolean('fidelizado').notNull(),
+    cluster: decimal('cluster', { precision: 10, scale: 2 }).notNull(),
 
 });
 
@@ -43,5 +47,9 @@ export const propostaMovel = SchemaCarteira.table("proposta_movel", {
     fatura_atual_movel: decimal('fatura_atual_movel', { precision: 10, scale: 2 }).notNull(),
     fatura_limite_movel: decimal('fatura_limite_movel', { precision: 10, scale: 2 }).notNull(),
     percentual_limite: decimal('percentual_limite', { precision: 10, scale: 2 }).notNull(),
-    sva: boolean('sva').notNull(), 
+    gap_alvo: decimal('gap_alvo', { precision: 10, scale: 2 }).notNull(),
+    cluster: decimal('cluster', { precision: 10, scale: 2 }).notNull(),
+    sva: boolean('sva').notNull(),
+    fatura_bruta_movel: decimal('fatura_bruta_movel', { precision: 10, scale: 2 }).notNull(),
+    travel: boolean('travel').notNull(),
 });
