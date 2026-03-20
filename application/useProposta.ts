@@ -20,9 +20,14 @@ export class FuncoesCalculoProposta {
         return match ? Number(match[1]) : 0;
     }
 
-    static calcularClusterConta(linhas: any[]) {
+    static calcularMediaM(linhas: any[]) {
         const totalM = linhas.reduce((acc, l) => acc + (Number(l.m) || 0), 0);
         const mediaM = linhas.length > 0 ? totalM / linhas.length : 0;
+        return mediaM;
+    }
+
+    static calcularClusterConta(linhas: any[]) {
+        const mediaM = FuncoesCalculoProposta.calcularMediaM(linhas);
 
         if (mediaM < 20) return 0;
         if (mediaM < 35) return -0.05;
@@ -40,6 +45,12 @@ export class FuncoesCalculoProposta {
 
         // Regra DDD (Fora de SP ganha 5% automático)
         if (ddd !== 11 && ddd !== 0) {
+            if (valorAtual < 54.00) return 0;
+
+            if (gbAtual > 10 && valorAtual > 54.00 && m >= 30) return -0.20;
+
+            if (gbAtual > 10 && valorAtual > 54.00 && m < 17) return 0;
+
             return -0.05;
         }
 

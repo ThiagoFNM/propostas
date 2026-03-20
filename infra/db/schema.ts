@@ -1,5 +1,4 @@
-import { timestamp } from "drizzle-orm/pg-core";
-import { boolean, decimal, integer, pgSchema, varchar } from "drizzle-orm/pg-core";
+import { boolean, decimal, integer, pgSchema, timestamp, varchar } from "drizzle-orm/pg-core";
 
 
 const SchemaCarteira = pgSchema('carteira')
@@ -52,4 +51,5 @@ export const propostaMovel = SchemaCarteira.table("proposta_movel", {
     sva: boolean('sva').notNull(),
     fatura_bruta_movel: decimal('fatura_bruta_movel', { precision: 10, scale: 2 }).notNull(),
     travel: boolean('travel').notNull(),
+    mMedio: decimal('m_medio', { precision: 10, scale: 2 }).notNull(),
 });
