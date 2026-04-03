@@ -3,9 +3,21 @@ import { PropostaMovelRepository } from "../infra/repository/usePropostaMovel";
 export class FuncoesCalculoProposta {
     static propostaMovelRepository = new PropostaMovelRepository();
 
+    static gbCache = new Map<string, number>();
+
     static extrairGB(nomePlano: string): number {
-        const match = nomePlano.match(/(\d+)GB/i);
-        return match ? Number(match[1]) : 0;
+        const cached = FuncoesCalculoProposta.gbCache.get(nomePlano);
+        if (cached !== undefined) return cached;
+
+        // O regex agora aceita números com ponto ou vírgula antes do GB
+        const match = nomePlano.match(/(\d+(?:[\.,]\d+)?)\s*GB/i);
+        let gb = 0;
+        if (match) {
+            // Troca vírgula por ponto para o Number() não falhar
+            gb = Number(match[1]?.replace(',', '.'));
+        }
+        FuncoesCalculoProposta.gbCache.set(nomePlano, gb);
+        return gb;
     }
 
     static extrairVelocidade(nomePlano: string): number {
@@ -13,11 +25,19 @@ export class FuncoesCalculoProposta {
         return match ? Number(match[1]) : 0;
     }
 
+    static dddCache = new Map<string, number>();
+
     static extrairDDD(numero: string): number {
+        const cached = FuncoesCalculoProposta.dddCache.get(numero);
+        if (cached !== undefined) return cached;
+
         if (!numero || typeof numero !== "string") return 0;
         const numeroLimpo = numero.replace(/\D/g, "");
         const match = numeroLimpo.match(/^(\d{2})/);
-        return match ? Number(match[1]) : 0;
+        const ddd = match ? Number(match[1]) : 0;
+        
+        FuncoesCalculoProposta.dddCache.set(numero, ddd);
+        return ddd;
     }
 
     static calcularMediaM(linhas: any[]) {
@@ -154,13 +174,15 @@ export class FuncoesCalculoProposta {
             const linha = linhas[index];
 
             for (const opcao of linha.opcoes) {
+                escolhas.push({ item: linha.item, plano: opcao.plano });
                 if (backtrack(
                     index + 1,
                     somaAtual + opcao.impacto,
-                    [...escolhas, { item: linha.item, plano: opcao.plano }]
+                    escolhas
                 )) {
                     return true;
                 }
+                escolhas.pop();
             }
 
             return false;
@@ -175,6 +197,6 @@ export class FuncoesCalculoProposta {
         return result.length > 0;
     }
 
-    
+
 
 }

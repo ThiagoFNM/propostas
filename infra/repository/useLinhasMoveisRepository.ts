@@ -10,8 +10,12 @@ export class LinhasMoveisRepository {
         return await db.select().from(linhasMoveis).where(eq(linhasMoveis.empresaId, id));
     }
 
-    async updateCluster(numero: string, cluster: string): Promise<void> {
-        await db.update(linhasMoveis).set({ cluster }).where(eq(linhasMoveis.nrLinha, numero));
+    async updateClusterBatch(updates: { nrLinha: string; cluster: string }[]): Promise<void> {
+        await Promise.all(
+            updates.map(async (update) => {
+                await db.update(linhasMoveis).set({ cluster: update.cluster }).where(eq(linhasMoveis.nrLinha, update.nrLinha));
+            })
+        );
     }
 
 }

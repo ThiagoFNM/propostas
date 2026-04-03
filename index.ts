@@ -4,6 +4,10 @@ import { PlanoMovelRepository } from "./infra/repository/usePlanosMovelRepositor
 import { FuncoesCalculoProposta } from "./application/useProposta";
 import { PropostaMovelRepository } from "./infra/repository/usePropostaMovel";
 import { Fatura } from "./application/useFatura";
+import pMap from "p-map";
+
+const BATCH_SIZE = 50 ; // Ajuste conforme necessário
+const DEBUG = false;
 
 const empresaRepository = new EmpresaRepository();
 const linhasMoveisRepository = new LinhasMoveisRepository();
@@ -11,20 +15,20 @@ const planoMovelRepository = new PlanoMovelRepository();
 const propostaMovelRepository = new PropostaMovelRepository();
 const faturaService = new Fatura();
 
-const cnpj_manual = "17264035000130";
+const cnpj_manual = "";
 
 export async function CalculoProposta() {
     const empresas = cnpj_manual.length === 14 ? [await empresaRepository.getByCnpj(cnpj_manual)] : await empresaRepository.findAllWithTpProduto("MOVEL");
     const planosMovelMap = await planoMovelRepository.getAll();
 
-    for (const empresa of empresas) {
-        console.log("Iniciando cálculo da proposta...");
+    await pMap(empresas, async (empresa) => {
+        console.log(`Processando empresa ${empresas.indexOf(empresa) + 1} de ${empresas.length}`);
+        // console.log("Iniciando cálculo da proposta...");
 
         const cnpj = `${empresa?.cnpjBasico}${empresa?.cnpjOrdem}${empresa?.cnpjDv}`;
         // const cnpj = empresa?.cnpj;
 
         const linhasMoveis = await linhasMoveisRepository.getLinhasMoveisByEmpresaId(Number(empresa?.id));
-        const planosMovelMap = await planoMovelRepository.getAll();
 
         const clusterConta = FuncoesCalculoProposta.calcularClusterConta(linhasMoveis);
 
@@ -34,32 +38,60 @@ export async function CalculoProposta() {
             // Passamos o valorAtual para checar o Floor Price
             const clusterLinha = FuncoesCalculoProposta.obterClusterDaLinha(linha, planosMovelMap, valorAtual);
 
-            // Salva cluster da linha no banco
-            linhasMoveisRepository.updateCluster(linha.nrLinha, clusterLinha.toString());
-
             // Calculamos e arredondamos o limite para bater exato os centavos
             const limiteLinha = clusterLinha < 0
                 ? Math.round(valorAtual * (1 + clusterLinha) * 100) / 100
                 : valorAtual;
 
+
             // Passamos o limiteLinha para checar a Regra Anti-Downgrade
-            const planosValidos = FuncoesCalculoProposta.obterPlanosValidos(linha, planosMovelMap, clusterConta, clusterLinha, limiteLinha);
+
+            // com paração por gb do plano
+            const gigaAtual = FuncoesCalculoProposta.extrairGB(linha.plano);
 
             const existeNoPortfolio = planosMovelMap.some(
-                p => p.nome.trim().toUpperCase() === linha.plano.trim().toUpperCase()
+                p => FuncoesCalculoProposta.extrairGB(p.nome) === gigaAtual
             );
+            const planosValidos = FuncoesCalculoProposta.obterPlanosValidos(linha, planosMovelMap, clusterConta, clusterLinha, limiteLinha);
+
+            const planoObsoleto = gigaAtual > 0 && gigaAtual < 1;
+
+            if (planoObsoleto) {
+                const plano1GB = planosMovelMap.find(
+                    p => FuncoesCalculoProposta.extrairGB(p.nome) === 1
+                );
+
+                if (plano1GB) {
+                    const jaExiste = planosValidos.some(
+                        p => FuncoesCalculoProposta.extrairGB(p.nome) === 1
+                    );
+
+                    if (!jaExiste) {
+                        planosValidos.push(plano1GB);
+                    }
+                }
+            }
 
             return {
                 linha,
                 valorAtual,
                 limiteLinha,
                 clusterLinha,
+                planoObsoleto,
                 planosValidos,
                 existeNoPortfolio,
                 planoParaAtual: { nome: linha.plano, valor: linha.valor },
                 planoFinal: null as any
             };
         });
+
+        const updates = simulacao.map(s => ({
+            nrLinha: s.linha.nrLinha,
+            cluster: (Math.round(s.clusterLinha * 100) / 100).toString()
+        }));
+
+        // Salva cluster da linha no banco
+        await linhasMoveisRepository.updateClusterBatch(updates);
 
         const fatAtualLinhas = simulacao.reduce((acc, s) => acc + s.valorAtual, 0);
         const limiteInferior = simulacao.reduce((acc, s) => acc + s.limiteLinha, 0);
@@ -85,35 +117,34 @@ export async function CalculoProposta() {
             0
         );
 
-        console.log("\n=== RESULTADO DO REVERSOR (SOLVER + CLUSTER DINÂMICO) ===");
+        // console.log("\n=== RESULTADO DO REVERSOR (SOLVER + CLUSTER DINÂMICO) ===");
 
         for (const item of simulacao) {
             const atual = item.valorAtual;
             const novo = Number(item.planoFinal?.valor || atual);
 
-            console.log(`\nLinha: ${item.linha.nrLinha} [Cluster: ${item.clusterLinha}]`);
-            console.log(`Atual: ${item.linha.plano} (R$ ${atual.toFixed(2)}) ${!item.existeNoPortfolio ? '❌ (Obsoleto)' : ''}`);
-            console.log(`Novo:  ${item.planoFinal?.nome || item.linha.plano} (R$ ${novo.toFixed(2)})`);
+            // console.log(`\nLinha: ${item.linha.nrLinha} [Cluster: ${item.clusterLinha}]`);
+            // console.log(`Atual: ${item.linha.plano} (R$ ${atual.toFixed(2)}) ${!item.existeNoPortfolio ? '❌ (Obsoleto)' : ''}`);
+            // console.log(`Novo:  ${item.planoFinal?.nome || item.linha.plano} (R$ ${novo.toFixed(2)})`);
         }
 
-        console.log("\n=======================");
-        console.log(`Fat Atual: R$ ${fatAtualLinhas.toFixed(2)}`);
-        console.log(`Meta Exata Sistêmica (Fat Limite): R$ ${limiteInferior.toFixed(2)} (-${percentualMaximoConta.toFixed(2)}%)`);
-        console.log(`Gap Alvo a reduzir: R$ ${gapAlvo.toFixed(2)}`);
-        console.log(`Fat Simulada Final pelo Solver: R$ ${fatSimulada.toFixed(2)}`);
+        // console.log("\n=======================");
+        // console.log(`Fat Atual: R$ ${fatAtualLinhas.toFixed(2)}`);
+        // console.log(`Meta Exata Sistêmica (Fat Limite): R$ ${limiteInferior.toFixed(2)} (-${percentualMaximoConta.toFixed(2)}%)`);
+        // console.log(`Gap Alvo a reduzir: R$ ${gapAlvo.toFixed(2)}`);
+        // console.log(`Fat Simulada Final pelo Solver: R$ ${fatSimulada.toFixed(2)}`);
 
         const precisao = Math.abs(limiteInferior - fatSimulada);
-        console.log(`Precisão do Solver: Erro de R$ ${precisao.toFixed(2)}`);
+        // console.log(`Precisão do Solver: Erro de R$ ${precisao.toFixed(2)}`);
         // ================================================================
         // 🚀 NOVO MÓDULO: BOLSÃO EXTREMO (PRIORIDADE: LINHAS NOVAS DE ALTO VALOR)
         // ================================================================
 
-        console.log("\n=== SIMULADOR DE BOLSÃO (PRIORIDADE EM NET ADDS) ===");
+        //console.log("\n=== SIMULADOR DE BOLSÃO (PRIORIDADE EM NET ADDS) ===");
 
         // Extrai GB do nome do plano de forma segura
         const extrairGiga = (nomePlano: string): number => {
-            const match = nomePlano.match(/(\d+(?:\.\d+)?)\s*GB/i);
-            return match ? parseFloat(match[1]) : 0;
+            return FuncoesCalculoProposta.extrairGB(nomePlano);
         };
 
         // PASSO 1: Esmagamento Extremo (Piso Absoluto)
@@ -123,20 +154,24 @@ export async function CalculoProposta() {
 
         const portfolioGeralCrescente = [...planosMovelMap].sort((a, b) => Number(a.valor) - Number(b.valor));
 
+
         // Mapeia a base criando um estado controlável para fazermos Upgrades Simulados depois
         const baseParaSimulacao = simulacao.map(item => {
             const mLinha = Number(item.linha.m);
-            
-            // Define os planos permitidos para a linha (Bypass no M >= 17)
-            const planosParaUpgrade = mLinha >= 17 
-                ? [...portfolioGeralCrescente] 
-                : [...item.planosValidos].sort((a, b) => Number(a.valor) - Number(b.valor));
-            
+            const isObsoleto = item.planoObsoleto;
+
+            // Verifica se o plano é obsoleto e define os planos permitidos para a linha (Bypass no M >= 17)
+            const planosParaUpgrade = isObsoleto
+                ? [item.planosValidos.find(p => extrairGiga(p.nome) === 1)!] // 🔒 trava no 1GB
+                : mLinha >= 17
+                    ? [...portfolioGeralCrescente]
+                    : [...item.planosValidos].sort((a, b) => Number(a.valor) - Number(b.valor));
+
             const planoBase = planosParaUpgrade.length > 0 ? planosParaUpgrade[0] : { valor: item.valorAtual, nome: item.linha.plano };
-            
+
             const gbAtual = extrairGiga(item.linha.plano);
             const gbEsmagado = extrairGiga(planoBase.nome);
-            
+
             gbTotalAntes += gbAtual;
             faturaEsmagada += Number(planoBase.valor);
             gbTotalDepois += gbEsmagado;
@@ -152,8 +187,8 @@ export async function CalculoProposta() {
             };
         });
 
-        console.log(`Franquia Original: ${gbTotalAntes} GB`);
-        console.log(`Piso Absoluto Esmagado: R$ ${faturaEsmagada.toFixed(2)} (${gbTotalDepois} GB)`);
+        // console.log(`Franquia Original: ${gbTotalAntes} GB`);
+        // console.log(`Piso Absoluto Esmagado: R$ ${faturaEsmagada.toFixed(2)} (${gbTotalDepois} GB)`);
 
         let gapDisponivel = fatAtualLinhas - faturaEsmagada;
         let deficitGbTotal = gbTotalAntes - gbTotalDepois;
@@ -166,21 +201,26 @@ export async function CalculoProposta() {
         // Função Interna: Testa se um orçamento consegue cobrir a meta de GB usando Upgrades de Base
         const consegueBaterMetaGb = (baseAtual: any[], orcamentoDisp: number, metaGbFaltante: number) => {
             if (metaGbFaltante <= 0) return true;
-            
+
             // Clona a base para não estragar a simulação
-            let cloneBase = baseAtual.map(b => ({ ...b }));
+            let cloneBase = baseAtual.map(b => ({
+                idxAtual: b.idxAtual,
+                custoAtual: b.custoAtual,
+                gbAtual: b.gbAtual,
+                planos: b.planos
+            }));
             let orcamentoGasto = 0;
             let gbGanho = 0;
 
             let teveMelhoria = true;
-            while(teveMelhoria && gbGanho < metaGbFaltante && orcamentoGasto < orcamentoDisp) {
+            while (teveMelhoria && gbGanho < metaGbFaltante && orcamentoGasto < orcamentoDisp) {
                 teveMelhoria = false;
                 let melhorCb = -1;
                 let melhorItemIdx = -1;
 
                 // Busca o melhor Upgrade (Mais GB por Menos Reais)
                 for (let i = 0; i < cloneBase.length; i++) {
-                    const item = cloneBase[i];
+                    const item = cloneBase[i]!;
                     const proxIdx = item.idxAtual + 1;
                     if (proxIdx < item.planos.length) {
                         const planoCandidato = item.planos[proxIdx];
@@ -198,7 +238,7 @@ export async function CalculoProposta() {
                 }
 
                 if (melhorItemIdx !== -1) {
-                    const item = cloneBase[melhorItemIdx];
+                    const item = cloneBase[melhorItemIdx]!;
                     const planoDestino = item.planos[item.idxAtual + 1];
                     orcamentoGasto += (Number(planoDestino.valor) - item.custoAtual);
                     gbGanho += (extrairGiga(planoDestino.nome) - item.gbAtual);
@@ -215,10 +255,10 @@ export async function CalculoProposta() {
         const linhasNovasConfirmadas = [];
         let receitaNovaInjetada = 0;
         let gbLinhasNovas = 0;
-        
+
         for (const planoNovo of planosParaLinhasNovas) {
             let tentaComprar = true;
-            while(tentaComprar) {
+            while (tentaComprar) {
                 tentaComprar = false;
                 const custoNovo = Number(planoNovo.valor);
                 const gbNovo = extrairGiga(planoNovo.nome);
@@ -226,7 +266,7 @@ export async function CalculoProposta() {
                 if (gapDisponivel >= custoNovo) {
                     const gapRestante = gapDisponivel - custoNovo;
                     // A nova linha já abate o déficit instantaneamente!
-                    const deficitSimulado = deficitGbTotal - gbNovo; 
+                    const deficitSimulado = deficitGbTotal - gbNovo;
 
                     // Verifica se o troco que sobrar dá pra arrumar a base
                     if (deficitSimulado <= 0 || consegueBaterMetaGb(baseParaSimulacao, gapRestante, deficitSimulado)) {
@@ -243,7 +283,7 @@ export async function CalculoProposta() {
 
         // PASSO 3: Aplicar Upgrades reais na base com o troco, para cobrir os GBs que ainda faltam
         let teveMelhoriaReal = true;
-        while(teveMelhoriaReal && deficitGbTotal > 0 && gapDisponivel > 0) {
+        while (teveMelhoriaReal && deficitGbTotal > 0 && gapDisponivel > 0) {
             teveMelhoriaReal = false;
             let melhorCb = -1;
             let melhorItemIdx = -1;
@@ -270,15 +310,15 @@ export async function CalculoProposta() {
             if (melhorItemIdx !== -1) {
                 const item = baseParaSimulacao[melhorItemIdx];
                 const planoDestino = item?.planos[Number(item?.idxAtual) + 1];
-                
+
                 gapDisponivel -= (Number(planoDestino?.valor) - Number(item?.custoAtual));
                 deficitGbTotal -= (extrairGiga(planoDestino?.nome) - Number(item?.gbAtual));
-                
+
                 item.custoAtual = Number(planoDestino?.valor);
                 item.gbAtual = extrairGiga(planoDestino?.nome);
                 item.planoSimulado = planoDestino;
                 item.idxAtual = Number(item?.idxAtual) + 1;
-                
+
                 teveMelhoriaReal = true;
             }
         }
@@ -291,13 +331,13 @@ export async function CalculoProposta() {
         // ================================================================
         // NOVO: LOG DETALHADO DA BASE APÓS BOLSÃO EXTREMO
         // ================================================================
-        console.log("\n=== STATUS DAS LINHAS APÓS BOLSÃO EXTREMO ===");
+        // console.log("\n=== STATUS DAS LINHAS APÓS BOLSÃO EXTREMO ===");
         for (const b of baseParaSimulacao) {
             const linhaNum = b.original.linha.nrLinha;
             const planoAntigo = b.original.linha.plano;
             const valorAntigo = b.original.valorAtual.toFixed(2);
             const gbAntigo = b.gbOriginal;
-            
+
             const planoNovo = b.planoSimulado.nome;
             const valorNovo = b.custoAtual.toFixed(2);
             const gbNovo = b.gbAtual;
@@ -305,37 +345,37 @@ export async function CalculoProposta() {
             const difValor = (Number(valorNovo) - Number(valorAntigo)).toFixed(2);
             const sinalValor = Number(difValor) > 0 ? '+' : '';
 
-            console.log(`Linha: ${linhaNum} | ${gbAntigo}GB -> ${gbNovo}GB | R$ ${valorAntigo} -> R$ ${valorNovo} (${sinalValor}R$ ${difValor})`);
-            console.log(`  De:   ${planoAntigo}`);
-            console.log(`  Para: ${planoNovo}\n`);
+            // console.log(`Linha: ${linhaNum} | ${gbAntigo}GB -> ${gbNovo}GB | R$ ${valorAntigo} -> R$ ${valorNovo} (${sinalValor}R$ ${difValor})`);
+            // console.log(`  De:   ${planoAntigo}`);
+            // console.log(`  Para: ${planoNovo}\n`);
         }
-        console.log("===============================================");
+        //console.log("===============================================");
 
         const qtdLinhasNovas = linhasNovasConfirmadas.length;
-        
-        console.log(`\nQtd Linhas Novas Adicionadas: ${qtdLinhasNovas}`);
-        console.log(`Receita Nova Simulada (Net Adds): R$ ${receitaNovaInjetada.toFixed(2)}`);
+
+        // console.log(`\nQtd Linhas Novas Adicionadas: ${qtdLinhasNovas}`);
+        // console.log(`Receita Nova Simulada (Net Adds): R$ ${receitaNovaInjetada.toFixed(2)}`);
 
         if (qtdLinhasNovas > 0) {
             const resumoLinhas = linhasNovasConfirmadas.reduce((acc, curr) => {
                 acc[curr.nome] = (acc[curr.nome] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
-            console.log(`Mix de Planos Encaixados:`, resumoLinhas);
+            // console.log(`Mix de Planos Encaixados:`, resumoLinhas);
         }
 
         const gbBaseFinal = baseParaSimulacao.reduce((acc, b) => acc + b.gbAtual, 0);
         const gbFinalTotal = gbBaseFinal + gbLinhasNovas;
         const variacaoGb = gbFinalTotal - gbTotalAntes;
         const sinalGb = variacaoGb >= 0 ? '+' : '';
-        
-        console.log(`Troco Residual (Ideal para SVAs): R$ ${gapDisponivel.toFixed(2)}`);
-        
-        console.log(`=======================================`);
-        console.log(`📊 RESUMO DA EXPERIÊNCIA DO CLIENTE:`);
-        console.log(`Fatura Anterior: R$ ${fatAtualLinhas.toFixed(2)} -> Fatura Nova: R$ ${(fatAtualLinhas - gapDisponivel).toFixed(2)}`);
-        console.log(`Franquia Anterior: ${gbTotalAntes} GB -> Nova Franquia: ${gbFinalTotal} GB (${sinalGb}${variacaoGb} GB)`);
-        console.log(`=======================================\n`);
+
+        // console.log(`Troco Residual (Ideal para SVAs): R$ ${gapDisponivel.toFixed(2)}`);
+
+        // console.log(`=======================================`);
+        // console.log(`📊 RESUMO DA EXPERIÊNCIA DO CLIENTE:`);
+        // console.log(`Fatura Anterior: R$ ${fatAtualLinhas.toFixed(2)} -> Fatura Nova: R$ ${(fatAtualLinhas - gapDisponivel).toFixed(2)}`);
+        // console.log(`Franquia Anterior: ${gbTotalAntes} GB -> Nova Franquia: ${gbFinalTotal} GB (${sinalGb}${variacaoGb} GB)`);
+        // console.log(`=======================================\n`);
 
         // ================================================================
         // CONTINUAÇÃO: CÓDIGO DO BANCO DE DADOS
@@ -344,12 +384,12 @@ export async function CalculoProposta() {
         const travel = await faturaService.getTravel(cnpj);
         const valorFaturaBruta = await faturaService.getValorFatura(cnpj);
 
-        if (await FuncoesCalculoProposta.existeProposta(Number(empresa?.id))) {
-            console.log("Empresa já tem proposta");
-            return;
-        }
+        // if (await FuncoesCalculoProposta.existeProposta(Number(empresa?.id))) {
+        //     console.log("Empresa já tem proposta");
+        //     return;
+        // }
 
-        propostaMovelRepository.insert({
+        const proposta = [{
             empresa_id: Number(empresa?.id),
             cluster: clusterConta.toString(),
             fatura_atual_movel: fatAtualLinhas.toFixed(2).toString(),
@@ -363,8 +403,11 @@ export async function CalculoProposta() {
             // 💡 DICA: Você precisará adicionar essas colunas no seu banco/repository depois:
             // linhas_novas_potencial: qtdLinhasNovas,
             // receita_nova_potencial: receitaNovaInjetada.toFixed(2),
-        })
-    }
+        }];
+
+
+        await propostaMovelRepository.insertMany(proposta);
+    }, { concurrency: BATCH_SIZE });
 }
 
 CalculoProposta();
