@@ -35,7 +35,7 @@ export class FuncoesCalculoProposta {
         const numeroLimpo = numero.replace(/\D/g, "");
         const match = numeroLimpo.match(/^(\d{2})/);
         const ddd = match ? Number(match[1]) : 0;
-        
+
         FuncoesCalculoProposta.dddCache.set(numero, ddd);
         return ddd;
     }
@@ -49,7 +49,7 @@ export class FuncoesCalculoProposta {
     static calcularClusterConta(linhas: any[]) {
         const mediaM = FuncoesCalculoProposta.calcularMediaM(linhas);
 
-        if (mediaM < 20) return 0;
+        if (mediaM < 20 ) return 0;
         if (mediaM < 35) return -0.05;
         return -0.15;
     }
@@ -59,37 +59,52 @@ export class FuncoesCalculoProposta {
             return Number(linha.excecao);
         }
 
+
         const m = Number(linha.m) || 0;
         const gbAtual = FuncoesCalculoProposta.extrairGB(linha.plano);
         const ddd = FuncoesCalculoProposta.extrairDDD(linha.nrLinha);
 
+        console.log("linha.nrLinha", linha.nrLinha)
+        console.log("ddd", ddd)
+        console.log("m", m)
+        console.log("gbAtual", gbAtual)
+        console.log("valorAtual", valorAtual)
+
+        if (ddd > 19 && m > 17 ) {
+            return 0
+        }
+
         // Regra DDD (Fora de SP ganha 5% automático)
         if (ddd !== 11 && ddd !== 0) {
             if (valorAtual < 54.00) return 0;
-
-            if (gbAtual > 10 && valorAtual > 54.00 && m >= 30) return -0.20;
-
+            if (gbAtual > 12 && valorAtual > 54.00 && m >= 30) return -0.15;
             if (gbAtual > 10 && valorAtual > 54.00 && m < 17) return 0;
-
             return -0.05;
         }
 
-        // 🔥 Padrão Descoberto: Piso de retenção (Valor >= R$ 54.00)
+        // Regra de retenção agressiva para chips muito antigos
         if (m >= 30 && valorAtual >= 54.00) return -0.15;
-        if (m >= 30 && valorAtual < 54.00) return 0; // Bloqueado por ser muito barato
+        if (m >= 30 && valorAtual < 54.00) return 0; // Proteção para planos já muito baratos
 
-        if (m < 19) return 0;
-
-        // Regra de Retenção de GB
-        if (gbAtual > 10) {
-            const existePlanoIgual = planosMovelMap.some(p => FuncoesCalculoProposta.extrairGB(p.nome) === gbAtual);
-            if (existePlanoIgual) {
-                if (m >= 22 && m < 30) return -0.15;
-                if (m >= 17 && m < 22) return -0.05;
+        // 🔥 REGRA ATUALIZADA COM BASE NO LOG DA OPERADORA
+        // A operadora dá 5% (-0.05) para QUALQUER chip com M >= 18, ignorando a franquia de GB.
+        if (m >= 18 && m < 30) {
+            // Se quiser manter a regra antiga de -0.15 para M>=22 e gb>10, pode manter aqui dentro:
+            if (m >= 22 && gbAtual > 10) {
+                const existePlanoIgual = planosMovelMap.some(p => FuncoesCalculoProposta.extrairGB(p.nome) === gbAtual);
+                if (existePlanoIgual) return -0.15;
             }
+
+            // Padrão do log: todos com M=18 ganharam 5%
+            return -0.05;
         }
 
-        return 0;
+        // Linhas novas (ex: M=12, M=14 vistos no seu log) não ganham redução
+        if (m < 17) {
+            return 0;
+        }
+
+        return 0; // Fallback
     }
 
     static classificarLinha(linha: any) {

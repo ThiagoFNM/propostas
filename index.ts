@@ -15,7 +15,7 @@ const planoMovelRepository = new PlanoMovelRepository();
 const propostaMovelRepository = new PropostaMovelRepository();
 const faturaService = new Fatura();
 
-const cnpj_manual = "";
+const cnpj_manual = "32825785000128";
 
 export async function CalculoProposta() {
     const empresas = cnpj_manual.length === 14 ? [await empresaRepository.getByCnpj(cnpj_manual)] : await empresaRepository.findAllWithTpProduto("MOVEL");
@@ -38,10 +38,14 @@ export async function CalculoProposta() {
             // Passamos o valorAtual para checar o Floor Price
             const clusterLinha = FuncoesCalculoProposta.obterClusterDaLinha(linha, planosMovelMap, valorAtual);
 
+            console.log("valorAtual", valorAtual)
+            console.log("clusterLinha", clusterLinha)
             // Calculamos e arredondamos o limite para bater exato os centavos
             const limiteLinha = clusterLinha < 0
                 ? Math.round(valorAtual * (1 + clusterLinha) * 100) / 100
                 : valorAtual;
+
+            console.log("limiteLinha", limiteLinha)
 
 
             // Passamos o limiteLinha para checar a Regra Anti-Downgrade
@@ -95,10 +99,14 @@ export async function CalculoProposta() {
 
         const fatAtualLinhas = simulacao.reduce((acc, s) => acc + s.valorAtual, 0);
         const limiteInferior = simulacao.reduce((acc, s) => acc + s.limiteLinha, 0);
-
+        
+        console.log("fatAtualLinhas", fatAtualLinhas)
+        console.log("limiteInferior", limiteInferior)
+        
         const gapAlvo = fatAtualLinhas - limiteInferior;
+        console.log("gapAlvo", gapAlvo)
         const percentualMaximoConta = fatAtualLinhas > 0 ? (gapAlvo / fatAtualLinhas) * 100 : 0;
-
+        console.log("percentualMaximoConta", percentualMaximoConta)
         const linhasOpcoes = FuncoesCalculoProposta.gerarOpcoesPorLinha(simulacao);
 
         const melhorCombinacao = FuncoesCalculoProposta.encontrarMelhorCombinacao(linhasOpcoes, gapAlvo);
@@ -331,7 +339,7 @@ export async function CalculoProposta() {
         // ================================================================
         // NOVO: LOG DETALHADO DA BASE APÓS BOLSÃO EXTREMO
         // ================================================================
-        // console.log("\n=== STATUS DAS LINHAS APÓS BOLSÃO EXTREMO ===");
+        console.log("\n=== STATUS DAS LINHAS APÓS BOLSÃO EXTREMO ===");
         for (const b of baseParaSimulacao) {
             const linhaNum = b.original.linha.nrLinha;
             const planoAntigo = b.original.linha.plano;
@@ -345,23 +353,23 @@ export async function CalculoProposta() {
             const difValor = (Number(valorNovo) - Number(valorAntigo)).toFixed(2);
             const sinalValor = Number(difValor) > 0 ? '+' : '';
 
-            // console.log(`Linha: ${linhaNum} | ${gbAntigo}GB -> ${gbNovo}GB | R$ ${valorAntigo} -> R$ ${valorNovo} (${sinalValor}R$ ${difValor})`);
-            // console.log(`  De:   ${planoAntigo}`);
-            // console.log(`  Para: ${planoNovo}\n`);
+            console.log(`Linha: ${linhaNum} | ${gbAntigo}GB -> ${gbNovo}GB | R$ ${valorAntigo} -> R$ ${valorNovo} (${sinalValor}R$ ${difValor})`);
+            console.log(`  De:   ${planoAntigo}`);
+            console.log(`  Para: ${planoNovo}\n`);
         }
         //console.log("===============================================");
 
         const qtdLinhasNovas = linhasNovasConfirmadas.length;
 
-        // console.log(`\nQtd Linhas Novas Adicionadas: ${qtdLinhasNovas}`);
-        // console.log(`Receita Nova Simulada (Net Adds): R$ ${receitaNovaInjetada.toFixed(2)}`);
+        console.log(`\nQtd Linhas Novas Adicionadas: ${qtdLinhasNovas}`);
+        console.log(`Receita Nova Simulada (Net Adds): R$ ${receitaNovaInjetada.toFixed(2)}`);
 
         if (qtdLinhasNovas > 0) {
             const resumoLinhas = linhasNovasConfirmadas.reduce((acc, curr) => {
                 acc[curr.nome] = (acc[curr.nome] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
-            // console.log(`Mix de Planos Encaixados:`, resumoLinhas);
+            console.log(`Mix de Planos Encaixados:`, resumoLinhas);
         }
 
         const gbBaseFinal = baseParaSimulacao.reduce((acc, b) => acc + b.gbAtual, 0);
@@ -371,11 +379,11 @@ export async function CalculoProposta() {
 
         // console.log(`Troco Residual (Ideal para SVAs): R$ ${gapDisponivel.toFixed(2)}`);
 
-        // console.log(`=======================================`);
-        // console.log(`📊 RESUMO DA EXPERIÊNCIA DO CLIENTE:`);
-        // console.log(`Fatura Anterior: R$ ${fatAtualLinhas.toFixed(2)} -> Fatura Nova: R$ ${(fatAtualLinhas - gapDisponivel).toFixed(2)}`);
-        // console.log(`Franquia Anterior: ${gbTotalAntes} GB -> Nova Franquia: ${gbFinalTotal} GB (${sinalGb}${variacaoGb} GB)`);
-        // console.log(`=======================================\n`);
+        console.log(`=======================================`);
+        console.log(`📊 RESUMO DA EXPERIÊNCIA DO CLIENTE:`);
+        console.log(`Fatura Anterior: R$ ${fatAtualLinhas.toFixed(2)} -> Fatura Nova: R$ ${(fatAtualLinhas - gapDisponivel).toFixed(2)}`);
+        console.log(`Franquia Anterior: ${gbTotalAntes} GB -> Nova Franquia: ${gbFinalTotal} GB (${sinalGb}${variacaoGb} GB)`);
+        console.log(`=======================================\n`);
 
         // ================================================================
         // CONTINUAÇÃO: CÓDIGO DO BANCO DE DADOS

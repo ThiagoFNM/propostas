@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 
 export class PropostaMovelRepository {
     async insert(data: typeof propostaMovel.$inferInsert) {
+
+        console.log(data)
         await db.insert(propostaMovel).values(data).onConflictDoUpdate({
             target: propostaMovel.empresa_id,
             set: {
